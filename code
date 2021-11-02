@@ -1,0 +1,729 @@
+import requests.exceptions
+import vk_api
+import vk_api.longpoll
+from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
+import datetime
+import getpass
+from time import sleep, time
+import threading
+import os
+import json
+import cv2
+import pyautogui
+from sys import exit
+import psutil
+import pyaudio
+import wave
+main_token = 'YOUR API TOKEN'
+session = vk_api.VkApi(token=main_token)
+api = session.get_api()
+lpoll = VkBotLongPoll(session, YOUR VK GROUP ID)
+
+def camera(keyboard):
+    cap = cv2.VideoCapture(0)
+    for i in range(30):
+        cap.read()
+    ret, frame = cap.read()
+    if cap is None or not cap.isOpened():
+        sender(id,keyboard,'Веб-камера не доступна')
+    else:
+        cv2.imwrite('cam.png', frame)
+        cap.release()
+        photo(id,keyboard,'Фото с веб-камеры','cam.png')
+
+def screenshot(keyboard):
+    try:
+        pyautogui.screenshot('scr.png')
+        photo(id,keyboard,'Скриншот с компьютера','scr.png')
+    except Exception as e:
+        sender(id,keyboard,'Возникла ошибка:' + str(e))
+
+def photo(id,keyboard,text,filename):
+    upload = vk_api.VkUpload(session)
+    photo = upload.photo_messages(filename)
+    owner_id = photo[0]['owner_id']
+    photo_id = photo[0]['id']
+    access_key = photo[0]['access_key']
+    attachment = f'photo{owner_id}_{photo_id}_{access_key}'
+    session.method('messages.send', {'user_id': id,'message': text, 'attachment': attachment, 'random_id': 0, 'keyboard': keyboard})
+    os.remove(filename)
+
+
+def get_but(text, color):
+    return {
+        "action": {
+            "type": "text",
+            "payload": "{\"button\": \"" + "1" + "\"}",
+            "label": f"{text}"
+        },
+        "color": f"{color}"
+    }
+# со следующей по 120 строку я вдохновился, адапатировал, интерпретировал, подкорректировал, короче спиздил отсюда https://codeby.net/threads/python-skript-dlja-otslezhivanija-zapuskaemyx-prilozhenij.68888/
+class log():
+
+    def read(fname="log.log", rej="r", cod="utf8"):
+        try:
+            f = open(fname, rej)
+            text = f.read()
+            f.close()
+            return text
+        except:
+            try:
+                f = open(fname, rej, encoding=cod)
+                text = f.read()
+                f.close()
+                return text
+            except Exception as e:
+                return str(e)
+
+    def CommandExecutionP(command=""):
+        result = os.popen(command).read()
+        return result
+
+    def CommandExecution(command=""):
+        result = os.system(command)
+        return result
+
+    def getDate():
+        MyDate = datetime.date.today()
+        return MyDate
+
+    def getTime():
+        MyTime = datetime.datetime.today().strftime("%H:%M:%S")
+        return MyTime
+
+def proc():
+    global Filename
+    global List
+    global BlackList
+    BlackList = log.read('blackList.conf').split('\n')
+    date = str(log.getDate()).split('-')
+    clock = str(log.getTime())
+    date = date[2] + '-' + date[1] + '-'  + date[0]
+    List = list()
+    _PID = log.CommandExecutionP('tasklist /FO CSV').split('\n')
+    PidSave(_PID, date, clock, 'n')
+    while True:
+        global stop_taskread
+        if stop_taskread:
+            break
+        sleep(1)
+        threading.Thread(target= PidRead).start()
+
+def PidRead():
+    _PID = log.CommandExecutionP('tasklist /FO CSV').split('\n')
+    date = str(log.getDate())
+    clock = str(log.getTime())
+    PidSave(_PID, date, clock)
+
+def PidSave(_PID="", date="", clock="", wr='y'):
+    for line in _PID:
+        line = line.replace('"','').split(',')
+        if len(line) > 1:
+            if not line[0] + ' ' + line[1] in List:
+                List.append(line[0] + ' ' + line[1])
+                if wr == 'y' and line[3] != '0' and not line[0] in BlackList:
+                    sender(id,'', '+ \t|' + line[0] + '|\t|' + line[1] + '|\t|' + line[4][:len(line[4])-2].replace('я',' ') + 'Кб' + '|\t|' + clock + '|\t|' + date.replace('-', '.') + '|')
+
+    return List
+
+def offtime():
+    while True:
+        global stop_offtime
+        if stop_offtime:
+            break
+        off = open('offtime.txt', 'w+')
+        off.write(str(datetime.datetime.today().strftime('%H:%M:%S %Y-%m-%d')))
+        off.close()
+        sleep(5)
+# следующая функция тоже спизжена вот отсюда https://www.codegrepper.com/code-examples/python/pyaudio+save+wav+file
+def audio():
+    global voicerecord
+    global voicerecord1
+    voicerecord = True
+    voicerecord1 = True
+    try:
+        filename = "audio.wav"
+        chunk = 1024
+        FORMAT = pyaudio.paInt16
+        channels = 1
+        sample_rate = 44100
+        record_seconds = 5
+        p = pyaudio.PyAudio()
+        stream = p.open(format=FORMAT,
+                        channels=channels,
+                        rate=sample_rate,
+                        input=True,
+                        output=True,
+                        frames_per_buffer=chunk)
+        frames = []
+        while voicerecord:
+            data = stream.read(chunk)
+            frames.append(data)
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+        wf = wave.open(filename, "wb")
+        wf.setnchannels(channels)
+        wf.setsampwidth(p.get_sample_size(FORMAT))
+        wf.setframerate(sample_rate)
+        wf.writeframes(b"".join(frames))
+        wf.close()
+        upload_url = session.method("docs.getMessagesUploadServer", {"type": "audio_message", "peer_id": id, "v": "5.103"})['upload_url']
+        request = requests.post(upload_url, files={'file': open('audio.wav', 'rb')}).json()
+        save = session.method('docs.save', {"file": request['file']})['audio_message']
+        d = 'doc' + str(save['owner_id']) + '_' + str(save['id'])
+        session.method('messages.send', {'peer_id': id, 'attachment': d, 'random_id': 0})
+    except Exception as e:
+        sender(id,keyboard,'Возникла ошибка:' + str(e))
+
+def listeningtowrite():
+    global towrite
+    global blprocadd
+    for event in lpoll.listen():
+        if event.type == VkBotEventType.MESSAGE_NEW:
+            if event.object.message['text'].lower() == 'вернуться':
+                sender(id,keyboard2,'Возвращаю обратно.')
+                blprocadd = False
+                break
+            else:
+                towrite = str(event.object.message['text'])
+                sender(id, keyboard4, 'Добавить процесс "' + towrite + '" в черный список?')
+                break
+
+def listeningtodelete():
+    global towrite
+    global blprocdel
+    for event in lpoll.listen():
+        if event.type == VkBotEventType.MESSAGE_NEW:
+            if event.object.message['text'].lower() == 'вернуться':
+                sender(id,keyboard2,'Возвращаю обратно.')
+                blprocdel = False
+                break
+            else:
+                towrite = str(event.object.message['text'])
+                sender(id, keyboard4, 'Удалить процесс "' + towrite + '" из черного списка?')
+                break
+
+def listeningtokill():
+    global towrite
+    global prockill
+    global tokill
+    for event in lpoll.listen():
+        if event.type == VkBotEventType.MESSAGE_NEW:
+            if event.object.message['text'].lower() == 'вернуться' and pr:
+                sender(id, keyboard1, 'Возвращаю обратно.')
+                prockill = False
+                break
+            elif event.object.message['text'].lower() == 'вернуться' and not pr:
+                sender(id, keyboard, 'Возвращаю обратно.')
+                prockill = False
+                break
+            else:
+                towrite = str(event.object.message['text'])
+                if towrite.isdigit():
+                    sender(id, keyboard4, 'Вы уверены, что хотите убить процесс "' + towrite + '"?')
+                    tokill = int(towrite)
+                    break
+                else:
+                    sender(id,keyboard3,'Идентификатор процесса должен состоять из цифр')
+
+def listeningtoclearmsgs():
+    global toclear
+    global deletemsgs
+    stoplistening = False
+    for event in lpoll.listen():
+        if event.type == VkBotEventType.MESSAGE_NEW and not stoplistening:
+            msg = event.object.message['text'].lower()
+            if msg == 'вернуться':
+                sender(id, keyboard, 'Возвращаю обратно.')
+                break
+            elif msg == 'отправить айди сообщений':
+                getmsghistory()
+            elif msg == 'автоматическое удаление сообщений':
+                texttosend = 'Если вы хотите, чтобы бот автоматически удалял свои сообщения, укажите количество секунд, через которое бот будет удалять свои сообщения.' \
+                             'Интервал менее 5 секунд или более 86399 секунд не допускается.'
+                interval = open('interval.txt', 'a+')
+                interval.close()
+                interval = open('interval.txt', 'r+')
+                cq = 0
+                for bb in interval:
+                    for aa in bb:
+                        cq += 1
+                interval.close()
+                if cq > 0:
+                    deltxt = open('autodel.txt', 'r+')
+                    delvalue = deltxt.read()
+                    deltxt.close()
+                    interval = open('interval.txt', 'r')
+                    if delvalue == '0':
+                        texttosend += '\nВ данный момент автоудаление отключено.'
+                    elif delvalue == '1':
+                        texttosend += '\nВ данный момент установлен интервал:' + interval.read() + ' секунд'
+                    interval.close()
+
+                sender(id, keyboard7,texttosend)
+                autodelete = ''
+                for event in lpoll.listen():
+                    if event.type == VkBotEventType.MESSAGE_NEW:
+                        msg = event.object.message['text'].lower()
+                        if msg.isdigit():
+                            autodelete = msg
+                            if int(autodelete) > 4 and int(autodelete) < 86400:
+                                interval = open('interval.txt','w+')
+                                interval.write(autodelete)
+                                sender(id,keyboard,'Интервал удаления сообщений установлен на ' + autodelete + ' секунд.')
+                                deltxt = open('autodel.txt', 'w+')
+                                deltxt.write('1')
+                                deltxt.close()
+                                stoplistening = True
+                                break
+                            else:
+                                sender(id,keyboard3,'Я же сказал не меньше 5 секунд и не больше 86388 секунд STOP RIGHT HERE YOU CRIMINAL')
+                        elif msg == 'вернуться':
+                            sender(id, keyboard, 'Возвращаю обратно.')
+                            stoplistening = True
+                            break
+                        elif msg == 'выключить автоматическое удаление':
+                            deltxt = open('autodel.txt', 'w+')
+                            deltxt.write('0')
+                            deltxt.close()
+                            sender(id,keyboard,'Автоматическое удаление сообщений отключено')
+                            stoplistening = True
+                            break
+                        else:
+                            sender(id,keyboard3,'Напишите цифру или число, без других знаков, символов и т.п.')
+            else:
+                toclear = msg
+                sender(id,keyboard5,'Будут удалены сообщения "' + toclear + '". Подтвердить удаление? Вернуть эти сообщения будет невозможно.')
+                deletemsgs = True
+                break
+        elif stoplistening:
+            break
+
+def getmsghistory():
+    history = session.method('messages.getHistory', {'user_id': id,'count': '200'})['items']
+    fullhistory = ''
+    global ids
+    ids = ''
+    try:
+        for i in range(199):
+            if history[i]['from_id'] == -204785644:
+                if history[i]['text'].find('Айди') == -1:
+                    ids += str(history[i]['id']) + ','
+                    fullhistory += ('"' + history[i]['text'] + '"' + ' Айди сообщения:' + str(history[i]['id']) + '\n' + '\n')
+        if len(fullhistory) < 4096:
+            sender(id, keyboard6, fullhistory)
+        else:
+            sender(id,keyboard6,fullhistory[0:4096])
+    except Exception as e:
+        sender(id,keyboard,'Возникла ошибка:' + str(e))
+
+def autoclear():
+    deltxt = open('autodel.txt', 'a+')
+    deltxt.close()
+    deltxt = open('autodel.txt', 'r+')
+    delvalue = deltxt.read()
+    deltxt.close()
+    while True:
+        global clear
+        if not clear:
+            break
+        history = session.method('messages.getHistory', {'user_id': id, 'count': '200'})['items']
+        ids = ''
+        interval = open('interval.txt', 'r')
+        sinterval = interval.read()
+        interval.close()
+        sleep(int(sinterval))
+        try:
+            if delvalue == '1':
+                for i in range(199):
+                    if history[i]['from_id'] == -204785644:
+                        if history[i]['text'].find('Айди') == -1:
+                            ids += str(history[i]['id']) + ','
+                session.method('messages.delete', {'message_ids': ids, 'delete_for_all': 1, 'peer_id': id})
+        except:
+            None
+
+
+keyboard = {
+    "one_time": True,
+    "buttons": [
+        [get_but('Включить отправку логов', 'positive'), get_but('Выключить бота','negative')],
+        [get_but('Фото с веб-камеры', 'primary'), get_but('Скриншот', 'secondary')],
+        [get_but('Убить процесс','primary'),get_but('Черный список логов','secondary')],
+        [get_but('Удалить сообщения', 'primary'), get_but('Запись звука', 'secondary')],
+        [get_but('Помощь', 'primary')]
+    ]
+}
+keyboard = json.dumps(keyboard, ensure_ascii=False).encode('utf-8')
+keyboard = str(keyboard.decode('utf-8'))
+
+keyboard1 = {
+    "one_time": True,
+    "buttons": [
+        [get_but('Прекратить отправку логов', 'negative'), get_but('Выключить бота','negative')],
+        [get_but('Фото с веб-камеры', 'primary'), get_but('Скриншот', 'secondary')],
+        [get_but('Убить процесс', 'primary'), get_but('Черный список логов', 'secondary')],
+        [get_but('Удалить сообщения','primary'),get_but('Запись звука','secondary')],
+        [get_but('Помощь','primary')]
+    ]
+}
+keyboard1 = json.dumps(keyboard1, ensure_ascii=False).encode('utf-8')
+keyboard1 = str(keyboard1.decode('utf-8'))
+
+keyboard2 = {
+    "one_time": True,
+    "buttons": [
+        [get_but('Посмотреть содержимое', 'positive'), get_but('Добавить процессы','positive')],
+        [get_but('Убрать процессы', 'primary'), get_but('Убрать все', 'negative')],
+        [get_but('Стандартный список','primary'),get_but('Вернуться','secondary')]
+    ]
+}
+keyboard2 = json.dumps(keyboard2, ensure_ascii=False).encode('utf-8')
+keyboard2 = str(keyboard2.decode('utf-8'))
+
+keyboard3 = {
+    "one_time": True,
+    "buttons": [
+        [get_but('Вернуться','negative')]
+    ]
+}
+keyboard3 = json.dumps(keyboard3, ensure_ascii=False).encode('utf-8')
+keyboard3 = str(keyboard3.decode('utf-8'))
+
+keyboard4 = {
+    "one_time": True,
+    "buttons": [
+        [get_but('Да','positive'),get_but('Отмена','negative')],
+        [get_but('Вернуться','primary')]
+    ]
+}
+keyboard4 = json.dumps(keyboard4, ensure_ascii=False).encode('utf-8')
+keyboard4 = str(keyboard4.decode('utf-8'))
+
+keyboard5 = {
+    "one_time": True,
+    "buttons": [
+        [get_but('Да','positive'),get_but('Нет','negative')]
+    ]
+}
+keyboard5 = json.dumps(keyboard5, ensure_ascii=False).encode('utf-8')
+keyboard5 = str(keyboard5.decode('utf-8'))
+
+keyboard6 = {
+    "one_time": True,
+    "buttons": [
+        [get_but('Отправить айди сообщений','positive')],
+        [get_but('Вернуться','negative')],
+        [get_but('Автоматическое удаление сообщений', 'primary')]
+    ]
+}
+keyboard6 = json.dumps(keyboard6, ensure_ascii=False).encode('utf-8')
+keyboard6 = str(keyboard6.decode('utf-8'))
+
+keyboard7 = {
+    "one_time": True,
+    "buttons": [
+        [get_but('Вернуться','positive')],
+        [get_but('Выключить автоматическое удаление', 'negative')]
+
+    ]
+}
+keyboard7 = json.dumps(keyboard7, ensure_ascii=False).encode('utf-8')
+keyboard7 = str(keyboard7.decode('utf-8'))
+
+def sender(id,keyboard, text):
+    try:
+        session.method('messages.send', {'user_id': id, 'message': text, 'random_id': 0,'keyboard': keyboard})
+    except Exception as e:
+        session.method('messages.send', {'user_id': id, 'message': 'Возникла ошибка:' + str(e), 'random_id': 0})
+
+i = open('id.txt','r')
+id = i.read()
+
+texttosend = str(datetime.datetime.today().strftime('%Y-%m-%d %H:%M:%S')) + ' - Включение компьютера (' + str(getpass.getuser()) + ').'
+bothelp = '\nНапишите "Включить отправку логов", чтобы бот начал отправлять вам информацию о происходящих на вашем компьютере действиях.' \
+          '\nНапишите "Выключить бота", чтобы выключить бота.' \
+          '\nНапишите "Фото с веб-камеры", чтобы бот сделал изображение с веб камеры и отправил вам.' \
+          '\nНапишите "Скриншот", чтобы бот отправил вам скриншот с компьютера.' \
+          '\nНапишите "Черный список логов", чтобы открыть меню управления черным списком логов. В черном списке находятся процессы, информация ' \
+          'о которых не отправляется(так как эти процессы происходят часто, либо знать о них не обязательно).' \
+          '\nНапишите "Убить процесс", чтобы завершить любой выполняющийся в данный момент процесс.' \
+          '\nНапишите любое сообщение, чтобы проверить состояние компьютера: если бот вам ответил - компьютер включен, если нет - компьютер выключен.' \
+          '\nРасшифровка отправки логов:\n + |Имя процесса| |Уникальный айди процесса|\n |Сколько оперативной памяти занимает процесс|\n |Время включения процесса| |Дата включения процесса|'
+pr = False
+blprocadd = False
+blprocdel = False
+bl = False
+fulldel = False
+standard = False
+prockill = False
+voicerecord = False
+voicerecord1 = False
+deletemsgs = False
+clear = True
+off = open('offtime.txt', 'a+')
+while True:
+    off = open('offtime.txt', 'r+')
+    cq = 0
+    for bb in off:
+        for aa in bb:
+            cq += 1
+    if cq > 1:
+        off = open('offtime.txt', 'r')
+        texttosend += '\nВ прошлый раз бот был выключен в: ' + off.read()
+        off.close()
+    sender(id, keyboard, texttosend)
+    stop_offtime = False
+    threading.Thread(target=offtime).start()
+    threading.Thread(target=autoclear).start()
+    try:
+        for event in lpoll.listen():
+            if event.type == VkBotEventType.MESSAGE_NEW:
+                msg = event.object.message['text'].lower()
+                if str(event.message.get("from_id")) == id:
+                    if msg == 'помощь' and not pr:
+                        sender(id,keyboard,bothelp)
+
+                    elif msg == 'помощь' and pr:
+                        sender(id,keyboard1,bothelp)
+
+                    elif msg == 'включить отправку логов' and pr:
+                        sender(id,keyboard1,'Бот уже запущен, если вам ничего не приходит, это может означать, что никакие процессы не происходят на компьютере,'
+                                  ' либо работе скрипта что то мешает(он работает, но по каким то причинам не может отправлять логи).')
+
+                    elif msg == 'выключить бота':
+                        stop_taskread = True
+                        stop_offtime = True
+                        voicerecord = False
+                        clear = False
+                        sender(id,'','Бот выключен.')
+                        exit()
+
+                    elif msg == 'включить отправку логов' and not pr:
+                        sender(id,keyboard1, 'Бот будет отправлять вам логи в реальном времени. \nК сожалению,скрипт не может определять, когда выключается компьютер, для этого можно отправить любое сообщение.\n'
+                                   'Если бот ничего не ответил, то компьютер в данный момент выключен.\nНапишите "Прекратить отправку логов", чтобы прекратить отправку информации о происходящих на вашем компьютере действиях.')
+                        pr = True
+                        stop_taskread = False
+                        threading.Thread(target=proc).start()
+
+                    elif msg == 'прекратить отправку логов':
+                        pr = False
+                        stop_taskread = True
+                        sender(id,keyboard,'Отправка логов выключена.')
+
+                    elif msg == 'фото с веб-камеры' and pr:
+                        camera(keyboard1)
+
+                    elif msg == 'фото с веб-камеры' and not pr:
+                        camera(keyboard)
+
+                    elif msg == 'скриншот' and pr:
+                        screenshot(keyboard1)
+
+                    elif msg == 'скриншот' and not pr:
+                        screenshot(keyboard)
+
+                    elif msg == 'черный список логов':
+                        bl = True
+                        sender(id,keyboard2,'Для того, чтобы все работало корректно, при добавлении процессов, указывайте то название, которое находится в логах в первой колонке.'
+                                            '\nВ названии не должно быть пробелов и специальных символов. Название всегда заканчивается на ".exe"'
+                                            '\nРегистр так же имеет значение. Если процесс называется "Telegram.exe" и вы добавите "telegram.exe", бот вам все равно будет присылать логи о запуске Telegram.'
+                                            '\nПример:Taskmgr.exe')
+
+                    elif msg == 'вернуться' and pr and not blprocdel and not blprocdel:
+                        sender(id,keyboard1,'Возвращаю обратно.')
+                        bl = False
+                        blprocadd = False
+                        blprocdel = False
+
+                    elif msg == 'вернуться' and not pr and not blprocdel and not blprocdel:
+                        sender(id,keyboard,'Возвращаю обратно.')
+                        bl = False
+                        blprocadd = False
+                        blprocdel = False
+
+                    elif msg == 'вернуться' and blprocadd or blprocdel:
+                        sender(id, keyboard2, 'Возвращаю обратно.')
+                        bl = True
+                        blprocadd = False
+                        blprocdel = False
+
+                    elif msg == 'посмотреть содержимое' and bl:
+                        blacklist = open('blacklist.conf', 'r+')
+                        aq = blacklist.read()
+                        if len(aq) <= 1:
+                            sender(id, keyboard2, 'Черный список пуст')
+                        else:
+                            sender(id,keyboard2,str(aq))
+                            blacklist.close()
+
+                    elif msg == 'добавить процессы' and bl:
+                        blprocadd = True
+                        sender(id,keyboard3,'Нажмите "Вернуться", чтобы отменить редактирование списка.')
+                        listeningtowrite()
+
+                    elif msg == 'отмена' and blprocadd:
+                        sender(id, keyboard3, 'Нажмите "Вернуться", чтобы отменить редактирование списка.')
+                        listeningtowrite()
+
+                    elif msg == 'да' and blprocadd:
+                        blprocadd = False
+                        sender(id,keyboard2,'Процесс "' + towrite + '" добавлен в черный список.')
+                        blacklist = open('blacklist.conf','a')
+                        blacklist.write('\n' + towrite)
+                        blacklist.close()
+
+
+                    elif msg == 'убрать процессы' and bl:
+                        blprocdel = True
+                        sender(id,keyboard3,'Напишите имя процесса, который хотите убрать из черного списка.'
+                                            '\n Нажмите "Вернуться", чтобы отменить редактирование списка.')
+                        listeningtodelete()
+
+                    elif msg == 'отмена' and blprocdel:
+                        sender(id, keyboard3, 'Нажмите "Вернуться", чтобы отменить редактирование списка.')
+                        listeningtodelete()
+
+                    elif msg == 'да' and blprocdel:
+                        blacklist = open('blacklist.conf','r+')
+                        content = blacklist.read().split('\n')
+                        contains = False
+                        for i in content:
+                            if towrite == i:
+                                contains = True
+                                content.remove(i)
+                        blacklist.close()
+                        blprocdel = False
+                        if contains:
+                            sender(id, keyboard2, 'Процесс "' + towrite + '" удален из черного списка.')
+                            blacklist = open('blacklist.conf','w')
+                            for i in content:
+                                blacklist.write(i + '\n')
+                            blacklist.close()
+                        else:
+                            sender(id,keyboard2, 'Процесса с именем "' + towrite + '" нет в черном списке. Проверьте правильность написания процесса.')
+
+                    elif msg == 'убрать все' and bl:
+                        sender(id,keyboard5,'Вы уверены, что хотите полностью очистить черный список?')
+                        fulldel = True
+
+                    elif msg == 'да' and fulldel:
+                        fulldel = False
+                        sender(id,keyboard2,'Черный список очищен')
+                        blacklist = open('blacklist.conf', 'w')
+                        blacklist.close()
+
+                    elif msg == 'нет' and fulldel:
+                        fulldel = False
+                        sender(id, keyboard2, 'Возвращаю обратно.')
+
+                    elif msg == 'стандартный список' and bl:
+                        standard = True
+                        sender(id,keyboard5,'Вы уверены, что хотите изменить содержимое черного списка на стандартное? Все, что сейчас находится в черном списке, удалится.'
+                                            'Отменить это действие будет невозможно.\n'
+                                            'Стандартный список:\ncsrss.exe\ncmd.exe\ntasklist.exe\ndllhost.exe\nexplorer.exe\ntaskhost.exe\nconhost.exe')
+
+                    elif msg == 'да' and standard:
+                        standard = False
+                        sender(id,keyboard2,'Содержимое черного списка изменено на стандартное.')
+                        blacklist = open('blacklist.conf', 'w+')
+                        blacklist.write('csrss.exe\ncmd.exe\ntasklist.exe\ndllhost.exe\nexplorer.exe\ntaskhost.exe\nconhost.exe')
+                        blacklist.close()
+
+                    elif msg == 'нет' and standard:
+                        standard = False
+                        sender(id,keyboard2,'Возвращаю обратно.')
+
+                    elif msg == 'убить процесс':
+                        sender(id,keyboard3,'Введите уникальный идентификатор процесса(вторая колонка), который хотите завершить.')
+                        prockill = True
+                        listeningtokill()
+
+                    elif msg == 'да' and prockill and pr:
+                        parent_pid = tokill
+                        parent = psutil.Process(parent_pid)
+                        try:
+                            for child in parent.children(recursive=True):
+                                child.kill()
+                            parent.kill()
+                            sender(id, keyboard1, 'Процесс "' + towrite + '" завершен.')
+                        except:
+                            sender(id,keyboard1,'Процесса с идентификатором "' + towrite + '" не найдено.')
+
+
+                    elif msg == 'да' and prockill and not pr:
+                        parent_pid = tokill
+                        try:
+                            parent = psutil.Process(parent_pid)
+                            for child in parent.children(recursive=True):
+                                child.kill()
+                            parent.kill()
+                            sender(id, keyboard, 'Процесс "' + towrite + '" завершен.')
+                        except:
+                            sender(id, keyboard, 'Процесса с идентификатором "' + towrite + '" не найдено.')
+
+                    elif msg == 'отмена' and prockill:
+                        sender(id, keyboard3, 'Введите имя процесса, который хотите завершить.')
+                        listeningtokill()
+
+                    elif msg == 'запись звука':
+                        sender(id,keyboard5,'Начать запись звука? Бот пришлет вам голосовое сообщение.')
+                        voicerecord = True
+
+                    elif msg == 'нет' and voicerecord and pr:
+                        sender(id,keyboard1,'Возвращаю обратно.')
+                        voicerecord = False
+
+                    elif msg == 'нет' and voicerecord and not pr:
+                        sender(id,keyboard,'Возвращаю обратно.')
+                        voicerecord = False
+
+                    elif msg == 'да' and voicerecord and pr:
+                        sender(id,keyboard1,'Бот начал запись голосового сообщения. Напишите "-", чтобы бот остановил запись и отправил вам голосовое сообщение.')
+                        threading.Thread(target=audio).start()
+
+                    elif msg == 'да' and voicerecord and not pr:
+                        sender(id, keyboard,'Бот начал запись голосового сообщения. Напишите "-", чтобы бот остановил запись и отправил вам голосовое сообщение.')
+                        threading.Thread(target=audio).start()
+
+                    elif msg == '-' and voicerecord1 and pr:
+                        sender(id, keyboard1,'Бот завершил запись голосового сообщения и отправит его в ближайшее время.')
+                        voicerecord = False
+                        voicerecord1 = False
+
+                    elif msg == '-' and voicerecord1 and not pr:
+                        sender(id, keyboard,'Бот завершил запись голосового сообщения и отправит его в ближайшее время.')
+                        voicerecord = False
+                        voicerecord1 = False
+
+                    elif msg == 'удалить сообщения':
+                        sender(id,keyboard6,'Если вы хотите удалить какие либо сообщения, отправленные ботом, напишите их айди через запятую.'
+                                            '\nПример: "5231,2353,124,6421"'
+                                            '\nБот может удалять сообщения только в течение 24 часов с момента отправки.')
+                        listeningtoclearmsgs()
+
+                    elif msg == 'да' and deletemsgs:
+                        try:
+                            session.method('messages.delete', {'message_ids': toclear, 'delete_for_all': 1, 'peer_id': id})
+                            hist = session.method('messages.getHistory', {'user_id': id, 'count': '200'})['items']
+                            for i in range(20):
+                                if hist[i]['from_id'] == -204785644:
+                                    if hist[i]['text'].find('Айди') != -1 or hist[i]['text'].find('Будут удалены') != -1 or hist[i]['text'].find('какие либо') != -1:
+                                        session.method('messages.delete',{'message_ids': str(hist[i]['id']), 'delete_for_all': 1, 'peer_id': id})
+                            sender(id, keyboard, 'Сообщения успешно удалены.')
+
+                        except Exception as e:
+                            sender(id,keyboard,'При удалении произошла ошибка:' + str(e))
+                        deletemsgs = False
+
+                    elif msg == 'нет' and deletemsgs:
+                            sender(id,keyboard,'Возвращаю обратно')
+
+                    else:
+                        sender(id,keyboard,'Компьютер включен')
+
+
+    except requests.exceptions.ReadTimeout as timeout:
+        continue
