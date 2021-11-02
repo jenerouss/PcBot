@@ -14,10 +14,10 @@ from sys import exit
 import psutil
 import pyaudio
 import wave
-main_token = 'YOUR API TOKEN'
+main_token = ''
 session = vk_api.VkApi(token=main_token)
 api = session.get_api()
-lpoll = VkBotLongPoll(session, YOUR VK GROUP ID)
+lpoll = VkBotLongPoll(session,)
 
 def camera(keyboard):
     cap = cv2.VideoCapture(0)
