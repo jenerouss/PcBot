@@ -58,7 +58,7 @@ def get_but(text, color):
         },
         "color": f"{color}"
     }
-# со следующей по 120 строку я вдохновился, адапатировал, интерпретировал, подкорректировал, короче спиздил отсюда https://codeby.net/threads/python-skript-dlja-otslezhivanija-zapuskaemyx-prilozhenij.68888/
+# со следующей по 128 строку я вдохновился, адапатировал, интерпретировал, подкорректировал, короче спиздил отсюда https://codeby.net/threads/python-skript-dlja-otslezhivanija-zapuskaemyx-prilozhenij.68888/
 class log():
 
     def read(fname="log.log", rej="r", cod="utf8"):
